@@ -76,11 +76,6 @@ export default function Layout({ children }) {
     return () => clearInterval(id);
   }, []);
 
-  // Close mobile nav on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
-
   const isActive = (href) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
 
@@ -455,6 +450,7 @@ export default function Layout({ children }) {
                 key={item.href}
                 href={item.href}
                 className={`nav-item${isActive(item.href) ? ' active' : ''}`}
+                onClick={() => setMobileOpen(false)}
               >
                 <span className="nav-icon">{item.icon}</span>
                 <span className="nav-label">{item.label}</span>

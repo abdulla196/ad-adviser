@@ -176,22 +176,23 @@ const connectFns: Record<string, () => void> = {
 };
 
 function PlatformsTab() {
-  const [status, setStatus] = useState<Record<string, { connected: boolean; account?: string; lastSync?: string }>>({});
+  const [status, setStatus] = useState<Record<string, { connected: boolean; connectedAt?: string }>>({});
   const [loading, setLoading] = useState(true);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [adAccounts, setAdAccounts] = useState<Array<{ id: string; name: string; account_status?: number; currency?: string }>>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
       const data = await auth.getStatus();
-      // Backend returns { platforms: { meta: boolean, tiktok: boolean, ... } }
-      const mapped: Record<string, { connected: boolean }> = {};
+      const mapped: Record<string, { connected: boolean; connectedAt?: string }> = {};
       if (data?.platforms) {
-        for (const [key, val] of Object.entries(data.platforms)) {
-          mapped[key] = { connected: !!val };
+        for (const [key, val] of Object.entries(data.platforms as Record<string, { connected: boolean; connectedAt?: string }>)) {
+          mapped[key] = { connected: !!val?.connected, connectedAt: val?.connectedAt || undefined };
         }
       }
       setStatus(mapped);
     } catch {
-      // fallback to all disconnected when backend is unavailable
       setStatus(
         Object.fromEntries(Object.keys(PLATFORM_META).map((k) => [k, { connected: false }]))
       );
@@ -202,8 +203,117 @@ function PlatformsTab() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
+  // Listen for Meta OAuth popup success
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'META_OAUTH_SUCCESS') {
+        await fetchStatus();
+        openAccountPicker();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [fetchStatus]);
+
+  const openAccountPicker = async () => {
+    setAccountsLoading(true);
+    setShowAccountPicker(true);
+    try {
+      const data = await auth.getMetaAdAccounts();
+      setAdAccounts(data.adAccounts || []);
+    } catch {
+      setAdAccounts([]);
+    } finally {
+      setAccountsLoading(false);
+    }
+  };
+
+  const handleSelectAccount = async (account: { id: string; name: string }) => {
+    try {
+      await auth.selectMetaAdAccount(account.id, account.name);
+      setShowAccountPicker(false);
+      fetchStatus();
+    } catch { /* ignore */ }
+  };
+
   return (
     <>
+      {/* ── Ad Account Picker Modal ── */}
+      {showAccountPicker && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.6)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--bg2)', border: '1px solid var(--border)',
+            borderRadius: '16px', padding: '32px', width: '100%',
+            maxWidth: '480px', maxHeight: '80vh', overflow: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h3 style={{ ...sectionTitle, marginBottom: 0 }}>Select Ad Account</h3>
+              <button onClick={() => setShowAccountPicker(false)} style={{
+                background: 'none', border: 'none', color: 'var(--muted)',
+                fontSize: '20px', cursor: 'pointer', lineHeight: 1,
+              }}>✕</button>
+            </div>
+            <p style={{ ...sectionDesc, marginBottom: '20px' }}>
+              Choose which Meta ad account to connect.
+            </p>
+            {accountsLoading ? (
+              <p style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                Loading your ad accounts…
+              </p>
+            ) : adAccounts.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: '12px' }}>
+                  No ad accounts found on this Facebook account.
+                </p>
+                <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: '16px' }}>
+                  Make sure your Facebook account has access to at least one Meta Ads ad account, and that the app has <strong style={{ color: 'var(--text)' }}>ads_read</strong> permission enabled.
+                </p>
+                <button onClick={() => setShowAccountPicker(false)} style={{ ...btnPrimary }}>
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {adAccounts.map((account) => (
+                  <button
+                    key={account.id}
+                    onClick={() => handleSelectAccount(account)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '14px',
+                      padding: '14px 16px', background: 'var(--bg3)',
+                      borderRadius: '10px', border: '1px solid var(--border)',
+                      cursor: 'pointer', textAlign: 'left',
+                      transition: 'border-color 0.15s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+                  >
+                    <div style={{
+                      width: 40, height: 40, borderRadius: '10px', background: '#1877F2',
+                      color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 15, flexShrink: 0,
+                    }}>M</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {account.name}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
+                        {account.id}{account.currency ? ` · ${account.currency}` : ''}
+                      </div>
+                    </div>
+                    <span style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>Select</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={card}>
         <h3 style={sectionTitle}>Connected Ad Platforms</h3>
         <p style={sectionDesc}>Manage your advertising platform connections. Connect accounts to sync campaign data.</p>
@@ -243,7 +353,7 @@ function PlatformsTab() {
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
                     {s.connected ? (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                        {s.account || id} · Synced {s.lastSync || 'just now'}
+                        Connected {s.connectedAt ? new Date(s.connectedAt).toLocaleDateString() : ''}
                       </div>
                     ) : (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>Not connected</div>
@@ -266,9 +376,23 @@ function PlatformsTab() {
                         Connected
                       </span>
                     )}
+                    {s.connected && id === 'meta' && (
+                      <button style={btnSecondary} onClick={openAccountPicker}>
+                        Switch Account
+                      </button>
+                    )}
                     <button
-                      style={s.connected ? btnSecondary : btnPrimary}
-                      onClick={() => { if (!s.connected) connectFns[id](); }}
+                      style={s.connected ? { ...btnSecondary, borderColor: 'rgba(248,113,113,0.3)', color: 'var(--red)' } : btnPrimary}
+                      onClick={async () => {
+                        if (s.connected) {
+                          try {
+                            await auth.disconnect(id);
+                            fetchStatus();
+                          } catch { /* ignore */ }
+                        } else {
+                          connectFns[id]();
+                        }
+                      }}
                     >
                       {s.connected ? 'Disconnect' : 'Connect'}
                     </button>
