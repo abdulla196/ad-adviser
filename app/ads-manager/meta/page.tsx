@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { auth, meta as metaApi } from '../../../lib/apiClient';
 
 /* Types */
@@ -105,6 +105,138 @@ type Ad = {
   purchases: number;
   revenue: number;
   roas: number;
+};
+
+type RawActionMetric = {
+  action_type?: string;
+  value?: string | number;
+};
+
+type RawInsights = {
+  impressions?: string | number;
+  reach?: string | number;
+  clicks?: string | number;
+  spend?: string | number;
+  ctr?: string | number;
+  cpc?: string | number;
+  cpm?: string | number;
+  actions?: RawActionMetric[];
+  action_values?: RawActionMetric[];
+  purchase_roas?: Array<{ value?: string | number }>;
+};
+
+type RawCampaign = {
+  id?: string | number;
+  name?: string;
+  status?: string;
+  effectiveStatus?: string;
+  objective?: string;
+  budget?: string | number;
+  lifetimeBudget?: string | number;
+  budgetRemaining?: string | number;
+  budgetType?: string;
+  buyingType?: string;
+  impressions?: string | number;
+  reach?: string | number;
+  clicks?: string | number;
+  spend?: string | number;
+  revenue?: string | number;
+  ctr?: string | number;
+  cpc?: string | number;
+  cpm?: string | number;
+  conversions?: string | number;
+  leads?: string | number;
+  purchases?: string | number;
+  viewContent?: string | number;
+  addToCart?: string | number;
+  initiateCheckout?: string | number;
+  cpl?: string | number;
+  cpa?: string | number;
+  aov?: string | number;
+  roas?: string | number;
+  startDate?: string;
+  endDate?: string;
+  lastUpdated?: string;
+  recommendationsCount?: string | number;
+};
+
+type RawAdSet = {
+  id?: string | number;
+  name?: string;
+  status?: string;
+  effective_status?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+  daily_budget?: string | number;
+  lifetime_budget?: string | number;
+  insights?: { data?: RawInsights[] };
+};
+
+type RawAd = {
+  id?: string | number;
+  name?: string;
+  status?: string;
+  effective_status?: string;
+  adset?: { name?: string };
+  creative?: {
+    title?: string;
+    name?: string;
+    body?: string;
+    thumbnail_url?: string;
+    image_url?: string;
+    object_story_spec?: {
+      link_data?: { message?: string };
+    };
+  };
+  insights?: { data?: RawInsights[] };
+};
+
+type MetaStatusResponse = {
+  platforms?: {
+    meta?: PlatformStatus;
+  };
+  meta?: PlatformStatus;
+};
+
+type MetaCampaignListResponse = { data?: RawCampaign[] } | RawCampaign[];
+type MetaCampaignResponse = { data?: RawCampaign } | RawCampaign;
+type MetaAdSetListResponse = { data?: RawAdSet[] } | RawAdSet[];
+type MetaAdListResponse = { data?: RawAd[] } | RawAd[];
+
+type MetaCampaignQuery = {
+  status?: string;
+  dateRange?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
+type MetaApiClient = {
+  getCampaigns: (params?: MetaCampaignQuery) => Promise<MetaCampaignListResponse>;
+  getCampaign: (id: string) => Promise<MetaCampaignResponse>;
+  getAdSets: (id: string) => Promise<MetaAdSetListResponse>;
+  getAds: (id: string) => Promise<MetaAdListResponse>;
+  pauseCampaign: (id: string) => Promise<unknown>;
+  activateCampaign: (id: string) => Promise<unknown>;
+};
+
+const unwrapListResponse = <T,>(response: { data?: T[] } | T[] | undefined): T[] => {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return response?.data ?? [];
+};
+
+const unwrapItemResponse = <T extends object>(response: { data?: T } | T | undefined): T | undefined => {
+  if (!response || Array.isArray(response)) {
+    return undefined;
+  }
+
+  if (typeof response === 'object' && 'data' in response) {
+    return response.data;
+  }
+
+  return response as T;
 };
 
 const INTEGER_FORMATTER = new Intl.NumberFormat('en-US');
@@ -280,7 +412,9 @@ const statusTone = (status: string) => {
   return { bg: 'rgba(249,115,22,0.14)', color: '#f97316' };
 };
 
-const mapCampaign = (campaign: any): Campaign => ({
+const typedMetaApi = metaApi as MetaApiClient;
+
+const mapCampaign = (campaign: RawCampaign): Campaign => ({
   id: String(campaign.id || ''),
   name: cleanText(campaign.name),
   status: cleanStatus(campaign.status || campaign.effectiveStatus),
@@ -315,7 +449,7 @@ const mapCampaign = (campaign: any): Campaign => ({
   recommendationsCount: safeNumber(campaign.recommendationsCount),
 });
 
-const mapAdSet = (adSet: any): AdSet => {
+const mapAdSet = (adSet: RawAdSet): AdSet => {
   const insights = adSet.insights?.data?.[0] || {};
   return {
     id: String(adSet.id || ''),
@@ -338,7 +472,7 @@ const mapAdSet = (adSet: any): AdSet => {
   };
 };
 
-const mapAd = (ad: any): Ad => {
+const mapAd = (ad: RawAd): Ad => {
   const insights = ad.insights?.data?.[0] || {};
   const purchases = sumActions(insights.actions, ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase']);
   const revenue = sumActions(insights.action_values, ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase']);
@@ -761,13 +895,13 @@ function ManageAdsStep({
     setLoading(true);
     try {
       const statusParam = statusFilter === 'ALL' ? 'ACTIVE,PAUSED' : statusFilter;
-      const response = await (metaApi as any).getCampaigns({
+      const response = await typedMetaApi.getCampaigns({
         status: statusParam,
         dateRange: appliedDatePreset === 'custom' ? undefined : resolveDatePreset(appliedDatePreset).dateRange,
         startDate: appliedStartDate,
         endDate: appliedEndDate,
       });
-      const rows = (response?.data || response || []).map(mapCampaign);
+      const rows = unwrapListResponse<RawCampaign>(response).map(mapCampaign);
       setCampaigns(rows);
     } catch {
       setCampaigns([]);
@@ -807,13 +941,14 @@ function ManageAdsStep({
     setDetailTab('all');
     try {
       const [campaignResponse, adSetResponse, adResponse] = await Promise.all([
-        (metaApi as any).getCampaign(campaignId),
-        (metaApi as any).getAdSets(campaignId),
-        (metaApi as any).getAds(campaignId),
+        typedMetaApi.getCampaign(campaignId),
+        typedMetaApi.getAdSets(campaignId),
+        typedMetaApi.getAds(campaignId),
       ]);
-      setCampaignDetail(mapCampaign(campaignResponse?.data || campaignResponse));
-      setAdSets((adSetResponse?.data || adSetResponse || []).map(mapAdSet));
-      setAds((adResponse?.data || adResponse || []).map(mapAd));
+      const campaignData = unwrapItemResponse<RawCampaign>(campaignResponse);
+      setCampaignDetail(campaignData ? mapCampaign(campaignData) : null);
+      setAdSets(unwrapListResponse<RawAdSet>(adSetResponse).map(mapAdSet));
+      setAds(unwrapListResponse<RawAd>(adResponse).map(mapAd));
     } catch {
       setCampaignDetail(null);
       setAdSets([]);
@@ -827,9 +962,9 @@ function ManageAdsStep({
     setTogglingId(campaign.id);
     try {
       if (campaign.status === 'ACTIVE') {
-        await (metaApi as any).pauseCampaign(campaign.id);
+        await typedMetaApi.pauseCampaign(campaign.id);
       } else {
-        await (metaApi as any).activateCampaign(campaign.id);
+        await typedMetaApi.activateCampaign(campaign.id);
       }
       await loadCampaigns();
       if (selectedCampaignId === campaign.id) {
@@ -1212,7 +1347,7 @@ function ManageAdsStep({
     </div>
   );
 
-  const renderDetailTable = (headers: string[], rows: Array<Array<string | number | JSX.Element>>) => (
+  const renderDetailTable = (headers: string[], rows: Array<Array<string | number | ReactNode>>) => (
     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, overflow: 'hidden' }}>
       <div style={{ maxHeight: '58vh', overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1412,8 +1547,8 @@ export default function MetaAdsManagerPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await auth.getStatus();
-        const ms = (res?.platforms?.meta ?? res?.meta) as any;
+        const res: MetaStatusResponse = await auth.getStatus();
+        const ms = res?.platforms?.meta ?? res?.meta;
         if (ms?.connected) {
           if (ms.selectedAdAccountId) {
             setSelectedAccount({ id: ms.selectedAdAccountId, name: ms.selectedAdAccountName || ms.selectedAdAccountId });
