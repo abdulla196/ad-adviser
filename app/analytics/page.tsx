@@ -1,5 +1,8 @@
 'use client';
 
+const INTEGER_FORMATTER = new Intl.NumberFormat('en-US');
+const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US');
+
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -161,9 +164,9 @@ export default function AnalyticsPage() {
             {platformPerf.map((p) => (
               <tr key={p.platform} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--text)', fontWeight: 500 }}>{p.platform}</td>
-                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--muted)', textAlign: 'right' }}>{p.impressions.toLocaleString()}</td>
-                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--muted)', textAlign: 'right' }}>{p.clicks.toLocaleString()}</td>
-                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--text)', fontWeight: 500, textAlign: 'right' }}>${p.spend.toLocaleString()}</td>
+                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--muted)', textAlign: 'right' }}>{INTEGER_FORMATTER.format(p.impressions)}</td>
+                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--muted)', textAlign: 'right' }}>{INTEGER_FORMATTER.format(p.clicks)}</td>
+                <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--text)', fontWeight: 500, textAlign: 'right' }}>${CURRENCY_FORMATTER.format(p.spend)}</td>
                 <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--green)', fontWeight: 500, textAlign: 'right' }}>{p.roas}x</td>
                 <td style={{ padding: '12px 14px', fontSize: '13px', color: 'var(--muted)', textAlign: 'right' }}>{(p.clicks / p.impressions * 100).toFixed(2)}%</td>
               </tr>

@@ -3,6 +3,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { auth } from '../../lib/apiClient';
 
+const CONNECTED_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+function formatConnectedDate(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return CONNECTED_DATE_FORMATTER.format(date);
+}
+
 /* ── Shared Styles ── */
 const card = {
   background: 'var(--bg2)',
@@ -353,7 +367,7 @@ function PlatformsTab() {
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
                     {s.connected ? (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                        Connected {s.connectedAt ? new Date(s.connectedAt).toLocaleDateString() : ''}
+                        Connected {formatConnectedDate(s.connectedAt)}
                       </div>
                     ) : (
                       <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>Not connected</div>

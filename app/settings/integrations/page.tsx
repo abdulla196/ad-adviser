@@ -1,20 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { auth } from '../../../lib/apiClient';
 
 type PlatformStatus = {
   connected: boolean;
   connectedAt?: string;
+  selectedPageId?: string | null;
+  selectedPageName?: string | null;
   selectedAdAccountId?: string | null;
   selectedAdAccountName?: string | null;
 };
 
-type AdAccount = {
+type MetaPage = {
   id: string;
   name: string;
-  account_status?: number;
-  currency?: string;
+  category?: string;
+  picture?: { data?: { url?: string } };
 };
 
 const cardStyle: React.CSSProperties = {
@@ -60,28 +63,28 @@ const logoWrap: React.CSSProperties = {
   flexShrink: 0,
 };
 
-function SelectAdAccountModal({
+function SelectMetaPageModal({
   open,
   loading,
-  accounts,
+  pages,
   onClose,
   onSelect,
 }: {
   open: boolean;
   loading: boolean;
-  accounts: AdAccount[];
+  pages: MetaPage[];
   onClose: () => void;
-  onSelect: (account: AdAccount) => void;
+  onSelect: (page: MetaPage) => void;
 }) {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return accounts;
-    return accounts.filter((a) =>
-      a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)
+    if (!q) return pages;
+    return pages.filter((page) =>
+      page.name.toLowerCase().includes(q) || page.id.toLowerCase().includes(q)
     );
-  }, [accounts, query]);
+  }, [pages, query]);
 
   if (!open) return null;
 
@@ -89,10 +92,10 @@ function SelectAdAccountModal({
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,7,12,0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
       <div style={{ width: '100%', maxWidth: 540, background: '#fff', color: '#111', borderRadius: 14, border: '1px solid rgba(0,0,0,0.08)', padding: 20, boxShadow: '0 20px 70px rgba(0,0,0,0.35)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ fontSize: 34, margin: 0, color: '#10131a', fontFamily: 'Syne, sans-serif' }}>Select Meta Ad Account</h3>
+          <h3 style={{ fontSize: 34, margin: 0, color: '#10131a', fontFamily: 'Syne, sans-serif' }}>Select Facebook Page</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 26, color: '#5b6470', cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
-        <p style={{ margin: '0 0 14px', fontSize: 15, color: '#576070' }}>Choose which Meta ad account you want to connect to this workspace.</p>
+        <p style={{ margin: '0 0 14px', fontSize: 15, color: '#576070' }}>Choose one of the Facebook pages you admin so we can open the Meta ads manager flow for that page.</p>
 
         <input
           value={query}
@@ -102,19 +105,54 @@ function SelectAdAccountModal({
         />
 
         {loading ? (
-          <p style={{ textAlign: 'center', color: '#5c6672', padding: '20px 0' }}>Loading ad accounts...</p>
+          <p style={{ textAlign: 'center', color: '#5c6672', padding: '20px 0' }}>Loading your admin pages...</p>
         ) : filtered.length === 0 ? (
-          <p style={{ textAlign: 'center', color: '#5c6672', padding: '20px 0' }}>No ad accounts found.</p>
+          <div style={{ textAlign: 'center', color: '#5c6672', padding: '20px 0' }}>
+            <p style={{ margin: '0 0 10px' }}>No admin pages found.</p>
+            <p style={{ margin: 0, fontSize: 13 }}>
+              If your Meta app still needs page access approval, keep login on basic scopes for now. Enable
+              {' '}
+              <strong style={{ color: '#10131a' }}>pages_show_list</strong>
+              {' '}
+              later and set
+              {' '}
+              <strong style={{ color: '#10131a' }}>META_ENABLE_ADVANCED_SCOPES=true</strong>
+              {' '}
+              in the backend once Meta has approved it.
+            </p>
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 340, overflowY: 'auto' }}>
-            {filtered.map((acc) => (
+            {filtered.map((page) => (
               <button
-                key={acc.id}
-                onClick={() => onSelect(acc)}
-                style={{ border: '1px solid #d8dde6', borderRadius: 12, background: '#f7f9fc', padding: '14px 14px', textAlign: 'left', cursor: 'pointer' }}
+                key={page.id}
+                onClick={() => onSelect(page)}
+                style={{ border: '1px solid #d8dde6', borderRadius: 12, background: '#f7f9fc', padding: '14px 14px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}
               >
-                <div style={{ fontSize: 32, color: '#111827', fontWeight: 600, lineHeight: 1.15 }}>{acc.name}</div>
-                <div style={{ fontSize: 24, color: '#6b7280', marginTop: 4 }}>ID: {acc.id}</div>
+                {page.picture?.data?.url ? (
+                  <div
+                    aria-label={page.name}
+                    role="img"
+                    style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: '50%',
+                      backgroundImage: `url(${page.picture.data.url})`,
+                      backgroundPosition: 'center',
+                      backgroundSize: 'cover',
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <div style={{ width: 46, height: 46, borderRadius: '50%', background: '#1877F2', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, flexShrink: 0 }}>
+                    {page.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 24, color: '#111827', fontWeight: 600, lineHeight: 1.15 }}>{page.name}</div>
+                  <div style={{ fontSize: 15, color: '#6b7280', marginTop: 4 }}>ID: {page.id}</div>
+                  {page.category && <div style={{ fontSize: 13, color: '#8a94a6', marginTop: 4 }}>{page.category}</div>}
+                </div>
               </button>
             ))}
           </div>
@@ -125,43 +163,12 @@ function SelectAdAccountModal({
 }
 
 export default function IntegrationsPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<Record<string, PlatformStatus>>({});
   const [statusLoading, setStatusLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [accounts, setAccounts] = useState<AdAccount[]>([]);
-
-  const platforms = [
-    {
-      id: 'meta',
-      name: 'Meta Ads',
-      logo: 'M',
-      logoColor: '#1877F2',
-      description: 'Login with your personal Facebook account, then choose a Meta ad account.',
-    },
-    {
-      id: 'tiktok',
-      name: 'TikTok Ads',
-      logo: 'T',
-      logoColor: '#010101',
-      description: 'Connect your TikTok ads account to sync campaigns and metrics.',
-    },
-    {
-      id: 'snapchat',
-      name: 'Snapchat Ads',
-      logo: 'S',
-      logoColor: '#FFFC00',
-      description: 'Connect your Snapchat ads account for campaign performance tracking.',
-      logoTextColor: '#000',
-    },
-    {
-      id: 'google',
-      name: 'Google Ads',
-      logo: 'G',
-      logoColor: '#4285F4',
-      description: 'Connect your Google Ads account to manage campaigns in one place.',
-    },
-  ];
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [pages, setPages] = useState<MetaPage[]>([]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -174,16 +181,16 @@ export default function IntegrationsPage() {
     }
   }, []);
 
-  const loadAccounts = useCallback(async () => {
-    setAccountsLoading(true);
+  const loadPages = useCallback(async () => {
+    setPagesLoading(true);
     setPickerOpen(true);
     try {
-      const data = await auth.getMetaAdAccounts();
-      setAccounts(data.adAccounts || []);
+      const data = await auth.getMetaPages();
+      setPages(data.pages || []);
     } catch {
-      setAccounts([]);
+      setPages([]);
     } finally {
-      setAccountsLoading(false);
+      setPagesLoading(false);
     }
   }, []);
 
@@ -195,29 +202,23 @@ export default function IntegrationsPage() {
     const onMessage = async (event: MessageEvent) => {
       if (event.data?.type === 'META_OAUTH_SUCCESS') {
         await refreshStatus();
-        await loadAccounts();
+        await loadPages();
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [refreshStatus, loadAccounts]);
+  }, [refreshStatus, loadPages]);
 
   const connectMeta = async () => {
     auth.connectMeta();
   };
 
-  const connectByPlatform: Record<string, () => void> = {
-    meta: () => connectMeta(),
-    tiktok: () => auth.connectTikTok(),
-    snapchat: () => auth.connectSnapchat(),
-    google: () => auth.connectGoogle(),
-  };
-
-  const selectAccount = async (acc: AdAccount) => {
+  const selectPage = async (page: MetaPage) => {
     try {
-      await auth.selectMetaAdAccount(acc.id, acc.name);
+      await auth.selectMetaPage(page.id, page.name);
       setPickerOpen(false);
       await refreshStatus();
+      router.push('/campaigns');
     } catch {
       // Keep modal open so user can retry.
     }
@@ -228,78 +229,73 @@ export default function IntegrationsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Integrations</h1>
-          <p className="page-subtitle">Connect and manage your third-party integrations</p>
+          <p className="page-subtitle">Login with Meta and choose the ad account to use in this workspace</p>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {platforms.map((platform) => {
-          const current = status[platform.id] || { connected: false };
-          return (
-            <div key={platform.id} style={cardStyle}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                <div style={{ ...logoWrap, background: platform.logoColor, color: platform.logoTextColor || '#fff' }}>{platform.logo}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 4 }}>{platform.name}</div>
-                  <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
-                    {platform.description}
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 14 }}>
-                {statusLoading ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Checking connection...</div>
-                ) : current.connected ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 20, background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontSize: 12, fontWeight: 600 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)' }} />
-                      Connected
-                    </span>
-                    {platform.id === 'meta' && current.selectedAdAccountName && (
-                      <span style={{ fontSize: 12, color: 'var(--text)' }}>
-                        Selected: {current.selectedAdAccountName}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Not connected</div>
-                )}
-              </div>
-
-              <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {!current.connected ? (
-                  <button style={btnPrimary} onClick={connectByPlatform[platform.id]}>
-                    Connect
-                  </button>
-                ) : (
-                  <>
-                    {platform.id === 'meta' && (
-                      <button style={btnPrimary} onClick={loadAccounts}>Select Ad Account</button>
-                    )}
-                    <button
-                      style={{ ...btnSecondary, borderColor: 'rgba(248,113,113,0.3)', color: 'var(--red)' }}
-                      onClick={async () => {
-                        await auth.disconnect(platform.id);
-                        await refreshStatus();
-                      }}
-                    >
-                      Disconnect
-                    </button>
-                  </>
-                )}
-              </div>
+      <div style={{ maxWidth: 760 }}>
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <div style={logoWrap}>M</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Meta Ads</div>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                Login with your personal Facebook account, then select one of the Facebook pages you admin.
+              </p>
             </div>
-          );
-        })}
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            {statusLoading ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Checking connection...</div>
+            ) : status.meta?.connected ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 20, background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontSize: 12, fontWeight: 600 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)' }} />
+                  Connected
+                </span>
+                {status.meta?.selectedPageName ? (
+                  <span style={{ fontSize: 12, color: 'var(--text)' }}>
+                    Page: {status.meta.selectedPageName}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>No page selected yet</span>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Not connected</div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {!status.meta?.connected ? (
+              <button style={btnPrimary} onClick={connectMeta}>
+                Login With Meta
+              </button>
+            ) : (
+              <>
+                <button style={btnPrimary} onClick={loadPages}>Select Page</button>
+                <button
+                  style={{ ...btnSecondary, borderColor: 'rgba(248,113,113,0.3)', color: 'var(--red)' }}
+                  onClick={async () => {
+                    await auth.disconnect('meta');
+                    await refreshStatus();
+                  }}
+                >
+                  Disconnect
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
-      <SelectAdAccountModal
+      <SelectMetaPageModal
         open={pickerOpen}
-        loading={accountsLoading}
-        accounts={accounts}
+        loading={pagesLoading}
+        pages={pages}
         onClose={() => setPickerOpen(false)}
-        onSelect={selectAccount}
+        onSelect={selectPage}
       />
     </div>
   );

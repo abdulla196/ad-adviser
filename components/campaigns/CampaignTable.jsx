@@ -4,6 +4,12 @@ import { useState, useEffect } from 'react';
 import PlatformBadge from '../dashboard/PlatformBadge';
 import { unified } from '../../lib/apiClient';
 
+const INTEGER_FORMATTER = new Intl.NumberFormat('en-US');
+const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
 const sampleCampaigns = [
   {
     id: 1,
@@ -73,7 +79,7 @@ const toRow = (c) => ({
   name: c.name,
   platform: c.platform?.charAt(0).toUpperCase() + c.platform?.slice(1),
   status: c.status?.toLowerCase() === 'active' ? 'active' : 'paused',
-  spend: `$${Number(c.spend || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+  spend: `$${CURRENCY_FORMATTER.format(Number(c.spend || 0))}`,
   impressions: c.impressions || 0,
   clicks: c.clicks || 0,
   ctr: `${(c.ctr || 0).toFixed(2)}%`,
@@ -152,8 +158,8 @@ export default function CampaignTable() {
                   </span>
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 500 }}>{campaign.spend}</td>
-                <td style={{ ...tdMuted, textAlign: 'right' }}>{campaign.impressions.toLocaleString()}</td>
-                <td style={{ ...tdMuted, textAlign: 'right' }}>{campaign.clicks.toLocaleString()}</td>
+                <td style={{ ...tdMuted, textAlign: 'right' }}>{INTEGER_FORMATTER.format(campaign.impressions)}</td>
+                <td style={{ ...tdMuted, textAlign: 'right' }}>{INTEGER_FORMATTER.format(campaign.clicks)}</td>
                 <td style={{ ...tdMuted, textAlign: 'right' }}>{campaign.ctr}</td>
                 <td style={{ ...tdMuted, textAlign: 'right' }}>{campaign.cpc}</td>
                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 500, color: 'var(--green)' }}>{campaign.roi}</td>

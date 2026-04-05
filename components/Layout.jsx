@@ -24,6 +24,15 @@ const NAV = [
     ),
   },
   {
+    label: 'Meta Ads',
+    href: '/ads-manager/meta',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+      </svg>
+    ),
+  },
+  {
     label: 'Create Ad',
     href: '/campaigns/create',
     icon: (
@@ -61,11 +70,28 @@ const PLATFORMS = [
   { id: 'google',  label: 'Google',   color: '#4285F4', letter: 'G' },
 ];
 
+const resolveBaseUrl = () => {
+  const explicitUrl = process.env.NEXT_PUBLIC_API_URL;
+  const localUrl = process.env.NEXT_PUBLIC_API_URL_LOCAL || 'http://localhost:5000';
+  const productionUrl = 'https://ad-adviser-backend-2t9i7h75z-abdulla196s-projects.vercel.app';
+
+  if (explicitUrl) {
+    return explicitUrl.replace(/\/$/, '');
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return localUrl.replace(/\/$/, '');
+  }
+
+  return productionUrl;
+};
+
 export default function Layout({ children }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [time, setTime] = useState('');
+  const [platformStatus, setPlatformStatus] = useState({});
 
   useEffect(() => {
     const tick = () => {
@@ -74,6 +100,15 @@ export default function Layout({ children }) {
     tick();
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);
+  }, []);
+
+  // Fetch real platform connection status
+  useEffect(() => {
+    const BASE_URL = resolveBaseUrl();
+    fetch(`${BASE_URL}/api/auth/status`)
+      .then(r => r.json())
+      .then(data => { if (data?.platforms) setPlatformStatus(data.platforms); })
+      .catch(() => {});
   }, []);
 
   const isActive = (href) =>
@@ -104,10 +139,8 @@ export default function Layout({ children }) {
 
         html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
 
-        /* ── Layout shell ── */
         .shell { display: flex; min-height: 100vh; }
 
-        /* ── Sidebar ── */
         .sidebar {
           width: var(--sidebar-w);
           min-height: 100vh;
@@ -122,7 +155,6 @@ export default function Layout({ children }) {
           overflow: hidden;
         }
 
-        /* ── Logo ── */
         .sidebar-logo {
           display: flex;
           align-items: center;
@@ -157,7 +189,6 @@ export default function Layout({ children }) {
         }
         .logo-text span { color: var(--accent2); }
 
-        /* ── Nav ── */
         .sidebar-nav { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; }
         .nav-section-label {
           font-size: 10px;
@@ -201,13 +232,19 @@ export default function Layout({ children }) {
           background: var(--accent);
           border-radius: 0 3px 3px 0;
         }
+        .nav-item.meta-item { color: #1877F2; }
+        .nav-item.meta-item:hover { background: rgba(24,119,242,0.1); color: #4a9cf5; }
+        .nav-item.meta-item.active {
+          background: rgba(24,119,242,0.15);
+          color: #4a9cf5;
+        }
+        .nav-item.meta-item.active::before { background: #1877F2; }
         .nav-icon { flex-shrink: 0; width: 18px; display: flex; align-items: center; justify-content: center; }
         .nav-label {
           opacity: ${collapsed ? 0 : 1};
           transition: opacity var(--transition);
         }
 
-        /* ── Platform pills ── */
         .platform-section { padding: 12px 10px 8px; border-top: 1px solid var(--border); }
         .platform-section-label {
           font-size: 10px;
@@ -252,14 +289,13 @@ export default function Layout({ children }) {
           margin-left: auto;
           width: 7px; height: 7px;
           border-radius: 50%;
-          background: var(--green);
           flex-shrink: 0;
           opacity: ${collapsed ? 0 : 1};
           transition: opacity var(--transition);
-          box-shadow: 0 0 6px var(--green);
         }
+        .platform-status.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .platform-status.disconnected { background: var(--muted); }
 
-        /* ── Collapse toggle ── */
         .sidebar-footer {
           padding: 12px 10px;
           border-top: 1px solid var(--border);
@@ -289,7 +325,6 @@ export default function Layout({ children }) {
           transition: opacity var(--transition);
         }
 
-        /* ── Main ── */
         .main {
           margin-left: var(--sidebar-w);
           flex: 1;
@@ -297,9 +332,9 @@ export default function Layout({ children }) {
           flex-direction: column;
           min-height: 100vh;
           transition: margin-left var(--transition);
+          overflow: hidden;
         }
 
-        /* ── Topbar ── */
         .topbar {
           height: 68px;
           border-bottom: 1px solid var(--border);
@@ -376,10 +411,8 @@ export default function Layout({ children }) {
           border: 2px solid var(--border-hi);
         }
 
-        /* ── Page content ── */
         .page-content { flex: 1; padding: 28px; }
 
-        /* ── Mobile overlay ── */
         .mobile-overlay {
           display: none;
           position: fixed;
@@ -389,7 +422,6 @@ export default function Layout({ children }) {
           backdrop-filter: blur(2px);
         }
 
-        /* ── Responsive ── */
         @media (max-width: 768px) {
           .sidebar {
             width: 228px !important;
@@ -402,12 +434,10 @@ export default function Layout({ children }) {
           .mobile-overlay { display: ${mobileOpen ? 'block' : 'none'}; }
         }
 
-        /* ── Scrollbar ── */
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 10px; }
 
-        /* ── Page title from data attr ── */
         .page-header {
           display: flex;
           align-items: flex-start;
@@ -430,26 +460,22 @@ export default function Layout({ children }) {
         }
       `}</style>
 
-      {/* Mobile overlay */}
       <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />
 
       <div className="shell">
-        {/* ── Sidebar ── */}
         <aside className="sidebar">
-          {/* Logo */}
           <div className="sidebar-logo">
             <div className="logo-mark">A</div>
             <span className="logo-text">Ad<span>viser</span></span>
           </div>
 
-          {/* Nav */}
           <nav className="sidebar-nav">
             <div className="nav-section-label">Menu</div>
             {NAV.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`nav-item${isActive(item.href) ? ' active' : ''}`}
+                className={`nav-item${item.href === '/ads-manager/meta' ? ' meta-item' : ''}${isActive(item.href) ? ' active' : ''}`}
                 onClick={() => setMobileOpen(false)}
               >
                 <span className="nav-icon">{item.icon}</span>
@@ -458,27 +484,22 @@ export default function Layout({ children }) {
             ))}
           </nav>
 
-          {/* Platforms */}
           <div className="platform-section">
             <div className="platform-section-label">Platforms</div>
-            {PLATFORMS.map((p) => (
-              <div key={p.id} className="platform-row">
-                <div
-                  className="platform-dot"
-                  style={{
-                    background: p.color,
-                    color: p.textColor || '#fff',
-                  }}
-                >
-                  {p.letter}
+            {PLATFORMS.map((p) => {
+              const connected = platformStatus[p.id]?.connected;
+              return (
+                <div key={p.id} className="platform-row">
+                  <div className="platform-dot" style={{ background: p.color, color: p.textColor || '#fff' }}>
+                    {p.letter}
+                  </div>
+                  <span className="platform-name">{p.label}</span>
+                  <span className={`platform-status ${connected ? 'connected' : 'disconnected'}`} />
                 </div>
-                <span className="platform-name">{p.label}</span>
-                <span className="platform-status" />
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* Collapse */}
           <div className="sidebar-footer">
             <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)}>
               <svg className="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -489,9 +510,7 @@ export default function Layout({ children }) {
           </div>
         </aside>
 
-        {/* ── Main ── */}
         <div className="main">
-          {/* Topbar */}
           <header className="topbar">
             <button className="topbar-mobile-btn" onClick={() => setMobileOpen(true)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -527,7 +546,6 @@ export default function Layout({ children }) {
             </div>
           </header>
 
-          {/* Page content */}
           <main className="page-content">
             {children}
           </main>

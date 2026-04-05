@@ -20,6 +20,34 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## API Configuration
+
+For local development, the frontend defaults to `http://localhost:5000`.
+
+Use these environment files:
+
+```bash
+# local development
+.env.local
+
+# production example
+.env.production.example
+```
+
+Example local config:
+
+```env
+NEXT_PUBLIC_API_URL_LOCAL=http://localhost:5000
+NEXT_PUBLIC_API_KEY=your_secret_api_key_for_frontend
+```
+
+Example production config:
+
+```env
+NEXT_PUBLIC_API_URL=https://ad-adviser-backend-2t9i7h75z-abdulla196s-projects.vercel.app
+NEXT_PUBLIC_API_KEY=your_production_api_key
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
