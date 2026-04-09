@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect, useCallback, useRef, type ChangeEvent, type FormEvent } from 'react';
 import { auth } from '../../lib/apiClient';
@@ -207,7 +208,7 @@ const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) => new Promise
 
 const loadImageElement = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
   const imageUrl = URL.createObjectURL(file);
-  const image = new Image();
+  const image = new window.Image();
 
   image.onload = () => {
     URL.revokeObjectURL(imageUrl);
@@ -463,6 +464,7 @@ function ProfileTab() {
             height: '78px',
             borderRadius: '50%',
             overflow: 'hidden',
+            position: 'relative',
             background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
             display: 'flex',
             alignItems: 'center',
@@ -475,10 +477,13 @@ function ProfileTab() {
             flexShrink: 0,
           }}>
             {profileForm.profileImageUrl ? (
-              <img
+              <Image
                 src={profileForm.profileImageUrl}
                 alt="Profile"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                fill
+                unoptimized
+                sizes="78px"
+                style={{ objectFit: 'cover' }}
               />
             ) : (
               getUserInitials(user)
@@ -638,9 +643,6 @@ const connectFns: Record<string, () => void> = {
 function PlatformsTab() {
   const [status, setStatus] = useState<Record<string, { connected: boolean; connectedAt?: string }>>({});
   const [loading, setLoading] = useState(true);
-  const [showAccountPicker, setShowAccountPicker] = useState(false);
-  const [adAccounts, setAdAccounts] = useState<Array<{ id: string; name: string; account_status?: number; currency?: string }>>([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -674,105 +676,8 @@ function PlatformsTab() {
     return () => window.removeEventListener('message', handleMessage);
   }, [fetchStatus]);
 
-  const openAccountPicker = async () => {
-    setAccountsLoading(true);
-    setShowAccountPicker(true);
-    try {
-      const data = await auth.getMetaAdAccounts();
-      setAdAccounts(data.adAccounts || []);
-    } catch {
-      setAdAccounts([]);
-    } finally {
-      setAccountsLoading(false);
-    }
-  };
-
-  const handleSelectAccount = async (account: { id: string; name: string }) => {
-    try {
-      await auth.selectMetaAdAccount(account.id, account.name);
-      setShowAccountPicker(false);
-      fetchStatus();
-    } catch { /* ignore */ }
-  };
-
   return (
     <>
-      {/* ── Ad Account Picker Modal ── */}
-      {showAccountPicker && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.6)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: 'var(--bg2)', border: '1px solid var(--border)',
-            borderRadius: '16px', padding: '32px', width: '100%',
-            maxWidth: '480px', maxHeight: '80vh', overflow: 'auto',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <h3 style={{ ...sectionTitle, marginBottom: 0 }}>Select Ad Account</h3>
-              <button onClick={() => setShowAccountPicker(false)} style={{
-                background: 'none', border: 'none', color: 'var(--muted)',
-                fontSize: '20px', cursor: 'pointer', lineHeight: 1,
-              }}>✕</button>
-            </div>
-            <p style={{ ...sectionDesc, marginBottom: '20px' }}>
-              Choose which Meta ad account to connect.
-            </p>
-            {accountsLoading ? (
-              <p style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
-                Loading your ad accounts…
-              </p>
-            ) : adAccounts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: '12px' }}>
-                  No ad accounts found on this Facebook account.
-                </p>
-                <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: '16px' }}>
-                  Make sure your Facebook account has access to at least one Meta Ads ad account, and that the app has <strong style={{ color: 'var(--text)' }}>ads_read</strong> permission enabled.
-                </p>
-                <button onClick={() => setShowAccountPicker(false)} style={{ ...btnPrimary }}>
-                  Close
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {adAccounts.map((account) => (
-                  <button
-                    key={account.id}
-                    onClick={() => handleSelectAccount(account)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '14px',
-                      padding: '14px 16px', background: 'var(--bg3)',
-                      borderRadius: '10px', border: '1px solid var(--border)',
-                      cursor: 'pointer', textAlign: 'left',
-                      transition: 'border-color 0.15s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
-                  >
-                    <div style={{
-                      width: 40, height: 40, borderRadius: '10px', background: '#1877F2',
-                      color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, fontSize: 15, flexShrink: 0,
-                    }}>M</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {account.name}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                        {account.id}{account.currency ? ` · ${account.currency}` : ''}
-                      </div>
-                    </div>
-                    <span style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 600, flexShrink: 0 }}>Select</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <div style={card}>
         <h3 style={sectionTitle}>Connected Ad Platforms</h3>
         <p style={sectionDesc}>Manage your advertising platform connections. Connect accounts to sync campaign data.</p>
