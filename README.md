@@ -39,6 +39,7 @@ Example local config:
 ```env
 NEXT_PUBLIC_API_URL_LOCAL=http://localhost:5000
 NEXT_PUBLIC_API_KEY=your_secret_api_key_for_frontend
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
 ```
 
 Example production config:
@@ -46,7 +47,31 @@ Example production config:
 ```env
 NEXT_PUBLIC_API_URL=https://ad-adviser-backend-2t9i7h75z-abdulla196s-projects.vercel.app
 NEXT_PUBLIC_API_KEY=your_production_api_key
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
 ```
+
+## Google Auth
+
+The login and register pages expose Google-only social auth. The backend expects the Google ID token returned by the Google sign-in button.
+
+Frontend:
+
+```env
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
+```
+
+Backend:
+
+```env
+GOOGLE_AUTH_CLIENT_ID=your_google_client_id
+```
+
+This must be a Google Cloud `Web application` OAuth client. In Google Cloud Console, add these Authorized JavaScript origins:
+
+- `http://localhost:3000`
+- your production frontend origin
+
+If Google shows `Error 401: invalid_client` or `no registered origin`, the client ID is not configured for the current frontend origin.
 
 ## Learn More
 

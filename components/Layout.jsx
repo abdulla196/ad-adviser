@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+
+import { auth, AUTH_STORAGE_EVENT } from '../lib/apiClient';
 
 const NAV = [
   {
@@ -86,12 +88,44 @@ const resolveBaseUrl = () => {
   return productionUrl;
 };
 
+const readStoredUser = () => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = localStorage.getItem('adAdviserUser');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const readStoredToken = () => {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('adAdviserAuthToken') || '';
+};
+
+const getAvatarLabel = (user) => {
+  const first = String(user?.firstName || '').trim();
+  const last = String(user?.lastName || '').trim();
+  const email = String(user?.email || '').trim();
+
+  if (first || last) {
+    return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || 'AA';
+  }
+
+  return email.slice(0, 2).toUpperCase() || 'AA';
+};
+
 export default function Layout({ children }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const isAuthPage = pathname === '/login' || pathname === '/register';
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [time, setTime] = useState('');
   const [platformStatus, setPlatformStatus] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const tick = () => {
@@ -104,15 +138,76 @@ export default function Layout({ children }) {
 
   // Fetch real platform connection status
   useEffect(() => {
-    const BASE_URL = resolveBaseUrl();
-    fetch(`${BASE_URL}/api/auth/status`)
-      .then(r => r.json())
-      .then(data => { if (data?.platforms) setPlatformStatus(data.platforms); })
+    if (isAuthPage) return;
+    auth.getStatus()
+      .then((data) => { if (data?.platforms) setPlatformStatus(data.platforms); })
       .catch(() => {});
+  }, [isAuthPage]);
+
+  useEffect(() => {
+    const syncUser = () => {
+      setCurrentUser(readStoredUser());
+    };
+
+    syncUser();
+    window.addEventListener('storage', syncUser);
+    window.addEventListener(AUTH_STORAGE_EVENT, syncUser);
+
+    return () => {
+      window.removeEventListener('storage', syncUser);
+      window.removeEventListener(AUTH_STORAGE_EVENT, syncUser);
+    };
   }, []);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setAuthReady(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const token = readStoredToken();
+    const hasSession = Boolean(token);
+
+    if (!isAuthPage && !hasSession) {
+      router.replace('/login');
+      return;
+    }
+
+    if (isAuthPage && hasSession) {
+      router.replace('/');
+    }
+  }, [isAuthPage, pathname, currentUser, router]);
+
+  const avatarLabel = getAvatarLabel(currentUser);
+  const avatarImage = currentUser?.profileImageUrl;
+
+  const handleLogout = () => {
+    auth.logout();
+    setCurrentUser(null);
+    setMobileOpen(false);
+    router.push('/login');
+    router.refresh();
+  };
 
   const isActive = (href) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
+
+  if (!authReady) {
+    return null;
+  }
+
+  if (!isAuthPage && !readStoredToken()) {
+    return null;
+  }
+
+  if (isAuthPage && readStoredToken()) {
+    return null;
+  }
 
   return (
     <>
@@ -398,10 +493,26 @@ export default function Layout({ children }) {
           transition: all 0.15s;
         }
         .topbar-refresh-btn:hover { background: var(--bg3); color: var(--text); border-color: var(--border-hi); }
+        .topbar-logout-btn {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          padding: 7px 14px;
+          border-radius: 8px;
+          border: 1px solid rgba(248,113,113,0.28);
+          background: rgba(248,113,113,0.08);
+          color: #fca5a5;
+          cursor: pointer;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+          transition: all 0.15s;
+        }
+        .topbar-logout-btn:hover { background: rgba(248,113,113,0.14); color: #fecaca; border-color: rgba(248,113,113,0.45); }
         .avatar {
           width: 34px; height: 34px;
           border-radius: 50%;
           background: linear-gradient(135deg, var(--accent), var(--accent2));
+          overflow: hidden;
           display: flex; align-items: center; justify-content: center;
           font-family: 'Syne', sans-serif;
           font-weight: 700;
@@ -409,6 +520,12 @@ export default function Layout({ children }) {
           color: #fff;
           cursor: pointer;
           border: 2px solid var(--border-hi);
+        }
+        .avatar-image {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
         }
 
         .page-content { flex: 1; padding: 28px; }
@@ -460,97 +577,117 @@ export default function Layout({ children }) {
         }
       `}</style>
 
-      <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />
+      {isAuthPage ? (
+        <main style={{ minHeight: '100vh', background: 'radial-gradient(circle at top left, rgba(124,106,247,0.2), transparent 34%), radial-gradient(circle at bottom right, rgba(24,119,242,0.16), transparent 28%), var(--bg)', color: 'var(--text)' }}>
+          {children}
+        </main>
+      ) : (
+        <>
+          <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />
 
-      <div className="shell">
-        <aside className="sidebar">
-          <div className="sidebar-logo">
-            <div className="logo-mark">A</div>
-            <span className="logo-text">Ad<span>viser</span></span>
-          </div>
+          <div className="shell">
+            <aside className="sidebar">
+              <div className="sidebar-logo">
+                <div className="logo-mark">A</div>
+                <span className="logo-text">Ad<span>viser</span></span>
+              </div>
 
-          <nav className="sidebar-nav">
-            <div className="nav-section-label">Menu</div>
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-item${item.href === '/ads-manager/meta' ? ' meta-item' : ''}${isActive(item.href) ? ' active' : ''}`}
-                onClick={() => setMobileOpen(false)}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                <span className="nav-label">{item.label}</span>
-              </Link>
-            ))}
-          </nav>
+              <nav className="sidebar-nav">
+                <div className="nav-section-label">Menu</div>
+                {NAV.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`nav-item${item.href === '/ads-manager/meta' ? ' meta-item' : ''}${isActive(item.href) ? ' active' : ''}`}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    <span className="nav-label">{item.label}</span>
+                  </Link>
+                ))}
+              </nav>
 
-          <div className="platform-section">
-            <div className="platform-section-label">Platforms</div>
-            {PLATFORMS.map((p) => {
-              const connected = platformStatus[p.id]?.connected;
-              return (
-                <div key={p.id} className="platform-row">
-                  <div className="platform-dot" style={{ background: p.color, color: p.textColor || '#fff' }}>
-                    {p.letter}
+              <div className="platform-section">
+                <div className="platform-section-label">Platforms</div>
+                {PLATFORMS.map((p) => {
+                  const connected = platformStatus[p.id]?.connected;
+                  return (
+                    <div key={p.id} className="platform-row">
+                      <div className="platform-dot" style={{ background: p.color, color: p.textColor || '#fff' }}>
+                        {p.letter}
+                      </div>
+                      <span className="platform-name">{p.label}</span>
+                      <span className={`platform-status ${connected ? 'connected' : 'disconnected'}`} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="sidebar-footer">
+                <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)}>
+                  <svg className="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span className="collapse-label">Collapse</span>
+                </button>
+              </div>
+            </aside>
+
+            <div className="main">
+              <header className="topbar">
+                <button className="topbar-mobile-btn" onClick={() => setMobileOpen(true)}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                  </svg>
+                </button>
+
+                <div>
+                  <div className="topbar-title">
+                    {NAV.find((n) => isActive(n.href))?.label || 'Ad Adviser'}
                   </div>
-                  <span className="platform-name">{p.label}</span>
-                  <span className={`platform-status ${connected ? 'connected' : 'disconnected'}`} />
+                  <div className="topbar-breadcrumb">
+                    <span>Home</span>
+                    {pathname !== '/' && (
+                      <>
+                        <span className="breadcrumb-sep">›</span>
+                        <span>{NAV.find((n) => isActive(n.href))?.label}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
 
-          <div className="sidebar-footer">
-            <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)}>
-              <svg className="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-              <span className="collapse-label">Collapse</span>
-            </button>
-          </div>
-        </aside>
+                <div className="topbar-right">
+                  <span className="topbar-time">{time}</span>
+                  <button className="topbar-refresh-btn">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                    Refresh
+                  </button>
+                  {currentUser && (
+                    <button className="topbar-logout-btn" onClick={handleLogout}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <polyline points="16 17 21 12 16 7"/>
+                        <line x1="21" y1="12" x2="9" y2="12"/>
+                      </svg>
+                      Logout
+                    </button>
+                  )}
+                  <div className="avatar">
+                    {avatarImage ? <img className="avatar-image" src={avatarImage} alt="Profile" /> : avatarLabel}
+                  </div>
+                </div>
+              </header>
 
-        <div className="main">
-          <header className="topbar">
-            <button className="topbar-mobile-btn" onClick={() => setMobileOpen(true)}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-              </svg>
-            </button>
-
-            <div>
-              <div className="topbar-title">
-                {NAV.find((n) => isActive(n.href))?.label || 'Ad Adviser'}
-              </div>
-              <div className="topbar-breadcrumb">
-                <span>Home</span>
-                {pathname !== '/' && (
-                  <>
-                    <span className="breadcrumb-sep">›</span>
-                    <span>{NAV.find((n) => isActive(n.href))?.label}</span>
-                  </>
-                )}
-              </div>
+              <main className="page-content">
+                {children}
+              </main>
             </div>
-
-            <div className="topbar-right">
-              <span className="topbar-time">{time}</span>
-              <button className="topbar-refresh-btn">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10"/>
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                </svg>
-                Refresh
-              </button>
-              <div className="avatar">JD</div>
-            </div>
-          </header>
-
-          <main className="page-content">
-            {children}
-          </main>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

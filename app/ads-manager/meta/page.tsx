@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { auth, meta as metaApi } from '../../../lib/apiClient';
 
 /* Types */
 type PlatformStatus = {
   connected: boolean;
   connectedAt?: string;
+  activeIntegrationId?: number | null;
   selectedPageId?: string | null;
   selectedPageName?: string | null;
   selectedAdAccountId?: string | null;
@@ -1539,6 +1541,7 @@ function ManageAdsStep({
 
 /* Main Page */
 export default function MetaAdsManagerPage() {
+  const router = useRouter();
   const [step, setStep] = useState(0);
   const [selectedPage, setSelectedPage] = useState<MetaPage | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<AdAccount | null>(null);
@@ -1571,18 +1574,33 @@ export default function MetaAdsManagerPage() {
   const handleConnected = useCallback(() => setStep(1), []);
 
   const handlePageSelect = useCallback(async (page: MetaPage) => {
-    try { await auth.selectMetaPage(page.id, page.name); } catch { /* non-fatal */ }
+    try {
+      await auth.selectMetaPage({
+        pageId: page.id,
+        pageName: page.name,
+        pagePictureUrl: page.picture?.data?.url,
+        pageCategory: page.category,
+      });
+    } catch { /* non-fatal */ }
     setSelectedPage(page);
     setStep(2);
   }, []);
 
   const handleAccountSelect = useCallback(async (account: AdAccount) => {
-    try { await auth.selectMetaAdAccount(account.id, account.name); } catch { /* non-fatal */ }
+    try {
+      await auth.selectMetaAdAccount({
+        adAccountId: account.id,
+        adAccountName: account.name,
+        currency: account.currency,
+      });
+    } catch { /* non-fatal */ }
     setSelectedAccount(account);
     setStep(3);
   }, []);
 
-  const handleReset = useCallback(() => { setSelectedPage(null); setSelectedAccount(null); setStep(1); }, []);
+  const handleReset = useCallback(() => {
+    router.push('/settings/integrations');
+  }, [router]);
 
   if (!initDone) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320, color: 'var(--muted)' }}>
@@ -1606,7 +1624,7 @@ export default function MetaAdsManagerPage() {
         </div>
         {step === 3 && (
           <button onClick={handleReset} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--muted)', fontSize: 13, cursor: 'pointer' }}>
-            ⚙ Change Account
+            ⚙ Manage Integrations
           </button>
         )}
       </div>

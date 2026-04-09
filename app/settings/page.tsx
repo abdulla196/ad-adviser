@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { useState, useEffect, useCallback, useRef, type ChangeEvent, type FormEvent } from 'react';
 import { auth } from '../../lib/apiClient';
 
 const CONNECTED_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
@@ -93,75 +94,520 @@ const TABS = [
   { id: 'team', label: 'Team' },
 ];
 
+const AUTH_STORAGE_EVENT = 'ad-adviser-auth-updated';
+const MAX_PROFILE_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_DIMENSION = 640;
+const MAX_PROFILE_IMAGE_DATA_URL_LENGTH = 900 * 1024;
+
+type AuthUser = {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl?: string | null;
+  provider: string;
+  hasPassword?: boolean;
+};
+
+type ProfileFormState = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  profileImageUrl: string;
+};
+
+type PasswordFormState = {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+};
+
+const emptyProfileForm: ProfileFormState = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  profileImageUrl: '',
+};
+
+const emptyPasswordForm: PasswordFormState = {
+  currentPassword: '',
+  newPassword: '',
+  confirmNewPassword: '',
+};
+
+const getStoredAuthToken = () => {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('adAdviserAuthToken') || '';
+};
+
+const getStoredUser = (): AuthUser | null => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = localStorage.getItem('adAdviserUser');
+    return raw ? JSON.parse(raw) as AuthUser : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistStoredUser = (user: AuthUser) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('adAdviserUser', JSON.stringify(user));
+  window.dispatchEvent(new Event(AUTH_STORAGE_EVENT));
+};
+
+const toProfileFormState = (user: AuthUser): ProfileFormState => ({
+  firstName: user.firstName || '',
+  lastName: user.lastName || '',
+  email: user.email || '',
+  profileImageUrl: user.profileImageUrl || '',
+});
+
+const getUserInitials = (user: AuthUser | null) => {
+  const first = String(user?.firstName || '').trim();
+  const last = String(user?.lastName || '').trim();
+  const email = String(user?.email || '').trim();
+
+  if (first || last) {
+    return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || 'AA';
+  }
+
+  return email.slice(0, 2).toUpperCase() || 'AA';
+};
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (typeof reader.result !== 'string') {
+      reject(new Error('Unable to process the selected image'));
+      return;
+    }
+
+    resolve(reader.result);
+  };
+  reader.onerror = () => reject(new Error('Unable to process the selected image'));
+  reader.readAsDataURL(blob);
+});
+
+const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob>((resolve, reject) => {
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) {
+        reject(new Error('Unable to process the selected image'));
+        return;
+      }
+
+      resolve(blob);
+    },
+    'image/jpeg',
+    quality
+  );
+});
+
+const loadImageElement = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const imageUrl = URL.createObjectURL(file);
+  const image = new Image();
+
+  image.onload = () => {
+    URL.revokeObjectURL(imageUrl);
+    resolve(image);
+  };
+
+  image.onerror = () => {
+    URL.revokeObjectURL(imageUrl);
+    reject(new Error('Unable to read the selected image'));
+  };
+
+  image.src = imageUrl;
+});
+
+const resizeProfileImage = async (file: File) => {
+  const image = await loadImageElement(file);
+  const longestSide = Math.max(image.width, image.height);
+  const scale = longestSide > MAX_PROFILE_IMAGE_DIMENSION ? MAX_PROFILE_IMAGE_DIMENSION / longestSide : 1;
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to process the selected image');
+  }
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  for (const quality of [0.88, 0.8, 0.72, 0.64, 0.56]) {
+    const blob = await canvasToBlob(canvas, quality);
+    const dataUrl = await blobToDataUrl(blob);
+    if (dataUrl.length <= MAX_PROFILE_IMAGE_DATA_URL_LENGTH) {
+      return dataUrl;
+    }
+  }
+
+  throw new Error('Image is still too large after compression. Choose a smaller image.');
+};
+
 /* ── Profile Tab ── */
 function ProfileTab() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [profileForm, setProfileForm] = useState<ProfileFormState>(emptyProfileForm);
+  const [passwordForm, setPasswordForm] = useState<PasswordFormState>(emptyPasswordForm);
+  const [loading, setLoading] = useState(true);
+  const [authMissing, setAuthMissing] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+
+  const applyUser = useCallback((nextUser: AuthUser) => {
+    setUser(nextUser);
+    setProfileForm(toProfileFormState(nextUser));
+  }, []);
+
+  useEffect(() => {
+    const storedUser = getStoredUser();
+    if (storedUser) {
+      applyUser(storedUser);
+    }
+
+    const token = getStoredAuthToken();
+    if (!token) {
+      setAuthMissing(true);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    auth.getMe()
+      .then((response) => {
+        if (cancelled) return;
+        const nextUser = response.user as AuthUser;
+        applyUser(nextUser);
+        persistStoredUser(nextUser);
+        setAuthMissing(false);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setProfileError(error instanceof Error ? error.message : 'Unable to load your profile');
+        setAuthMissing(!storedUser);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyUser]);
+
+  const resetProfileForm = () => {
+    if (!user) return;
+    setProfileForm(toProfileFormState(user));
+    setProfileError('');
+    setProfileSuccess('');
+  };
+
+  const handleProfileInput = (field: keyof ProfileFormState, value: string) => {
+    setProfileForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handlePasswordInput = (field: keyof PasswordFormState, value: string) => {
+    setPasswordForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleProfileImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setProfileError('');
+    setProfileSuccess('');
+
+    if (!file.type.startsWith('image/')) {
+      setProfileError('Select an image file for your profile photo');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_PROFILE_IMAGE_BYTES) {
+      setProfileError('Profile image must be 12 MB or smaller');
+      event.target.value = '';
+      return;
+    }
+
+    resizeProfileImage(file)
+      .then((dataUrl) => {
+        setProfileForm((current) => ({ ...current, profileImageUrl: dataUrl }));
+      })
+      .catch((error) => {
+        setProfileError(error instanceof Error ? error.message : 'Unable to read the selected image');
+        event.target.value = '';
+      });
+  };
+
+  const removeProfileImage = () => {
+    setProfileForm((current) => ({ ...current, profileImageUrl: '' }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+
+    if (!profileForm.firstName.trim() || !profileForm.lastName.trim()) {
+      setProfileError('First name and last name are required');
+      return;
+    }
+
+    setSavingProfile(true);
+
+    try {
+      const response = await auth.updateMe({
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        profileImageUrl: profileForm.profileImageUrl || null,
+      });
+
+      const nextUser = response.user as AuthUser;
+      applyUser(nextUser);
+      persistStoredUser(nextUser);
+      setProfileSuccess('Profile updated successfully');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Unable to update your profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (!user) {
+      setPasswordError('Load your profile before updating the password');
+      return;
+    }
+
+    if (!passwordForm.newPassword || !passwordForm.confirmNewPassword) {
+      setPasswordError('Enter and confirm your new password');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmNewPassword) {
+      setPasswordError('New password and confirm password must match');
+      return;
+    }
+
+    setSavingPassword(true);
+
+    try {
+      const response = await auth.updateMe({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImageUrl: user.profileImageUrl || null,
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+        confirmNewPassword: passwordForm.confirmNewPassword,
+      });
+
+      const nextUser = response.user as AuthUser;
+      applyUser(nextUser);
+      persistStoredUser(nextUser);
+      setPasswordForm(emptyPasswordForm);
+      setPasswordSuccess(user.hasPassword ? 'Password updated successfully' : 'Password created successfully');
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'Unable to update your password');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={card}>
+        <h3 style={sectionTitle}>Profile</h3>
+        <p style={{ ...sectionDesc, marginBottom: 0 }}>Loading your account details…</p>
+      </div>
+    );
+  }
+
+  if (authMissing && !user) {
+    return (
+      <div style={card}>
+        <h3 style={sectionTitle}>Profile</h3>
+        <p style={{ ...sectionDesc, marginBottom: 0 }}>Log in first to edit your profile.</p>
+      </div>
+    );
+  }
+
   return (
     <>
-      <div style={card}>
+      <form style={card} onSubmit={submitProfile}>
         <h3 style={sectionTitle}>Personal Information</h3>
-        <p style={sectionDesc}>Update your account details and preferences.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <p style={sectionDesc}>Update your account details using the active logged-in user.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '18px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{
+            width: '78px',
+            height: '78px',
+            borderRadius: '50%',
+            overflow: 'hidden',
+            background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontFamily: 'Syne, sans-serif',
+            fontWeight: 700,
+            fontSize: '24px',
+            border: '2px solid var(--border-hi)',
+            flexShrink: 0,
+          }}>
+            {profileForm.profileImageUrl ? (
+              <img
+                src={profileForm.profileImageUrl}
+                alt="Profile"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              getUserInitials(user)
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: '240px' }}>
+            <label style={label}>Profile Image</label>
+            <input
+              ref={fileInputRef}
+              style={input}
+              type="file"
+              accept="image/*"
+              onChange={handleProfileImageChange}
+            />
+            <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+              <button type="button" style={btnSecondary} onClick={removeProfileImage}>
+                Remove Image
+              </button>
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginTop: '10px' }}>
+              Large photos are resized automatically before upload. Your avatar updates across the app after save.
+            </p>
+          </div>
+        </div>
+        {profileError && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.22)', color: '#fda4af', fontSize: '13px' }}>
+            {profileError}
+          </div>
+        )}
+        {profileSuccess && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.22)', color: '#86efac', fontSize: '13px' }}>
+            {profileSuccess}
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
           <div>
             <label style={label}>First Name</label>
-            <input style={input} defaultValue="John" />
+            <input
+              style={input}
+              value={profileForm.firstName}
+              onChange={(event) => handleProfileInput('firstName', event.target.value)}
+            />
           </div>
           <div>
             <label style={label}>Last Name</label>
-            <input style={input} defaultValue="Doe" />
+            <input
+              style={input}
+              value={profileForm.lastName}
+              onChange={(event) => handleProfileInput('lastName', event.target.value)}
+            />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={label}>Email Address</label>
-            <input style={input} type="email" defaultValue="john@company.com" />
-          </div>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={label}>Company</label>
-            <input style={input} defaultValue="Acme Marketing Inc." />
-          </div>
-          <div>
-            <label style={label}>Phone</label>
-            <input style={input} type="tel" defaultValue="+1 555-0123" />
-          </div>
-          <div>
-            <label style={label}>Timezone</label>
-            <select style={input}>
-              <option>UTC-5 (Eastern)</option>
-              <option>UTC-6 (Central)</option>
-              <option>UTC-7 (Mountain)</option>
-              <option>UTC-8 (Pacific)</option>
-              <option>UTC+0 (GMT)</option>
-              <option>UTC+1 (CET)</option>
-              <option>UTC+2 (EET)</option>
-              <option>UTC+3 (AST)</option>
-            </select>
+            <input
+              style={{ ...input, opacity: 0.7, cursor: 'not-allowed' }}
+              type="email"
+              value={profileForm.email}
+              disabled
+            />
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginTop: '8px' }}>
+              Email is locked to the current login identity and cannot be changed here.
+            </p>
           </div>
         </div>
         <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
-          <button style={btnPrimary}>Save Changes</button>
-          <button style={btnSecondary}>Cancel</button>
+          <button style={btnPrimary} type="submit" disabled={savingProfile}>
+            {savingProfile ? 'Saving…' : 'Save Changes'}
+          </button>
+          <button style={btnSecondary} type="button" onClick={resetProfileForm}>
+            Cancel
+          </button>
         </div>
-      </div>
+      </form>
 
-      <div style={card}>
+      <form style={card} onSubmit={submitPassword}>
         <h3 style={sectionTitle}>Password</h3>
-        <p style={sectionDesc}>Change your password. Youll be signed out of other devices.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+        <p style={sectionDesc}>
+          {user?.hasPassword
+            ? 'Change your password for the current account.'
+            : 'This account does not have a password yet. Set one here for email login.'}
+        </p>
+        {passwordError && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.22)', color: '#fda4af', fontSize: '13px' }}>
+            {passwordError}
+          </div>
+        )}
+        {passwordSuccess && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.22)', color: '#86efac', fontSize: '13px' }}>
+            {passwordSuccess}
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
           <div>
             <label style={label}>Current Password</label>
-            <input style={input} type="password" placeholder="••••••••" />
+            <input
+              style={input}
+              type="password"
+              placeholder={user?.hasPassword ? '••••••••' : 'Optional for Google-only accounts'}
+              value={passwordForm.currentPassword}
+              onChange={(event) => handlePasswordInput('currentPassword', event.target.value)}
+            />
           </div>
           <div>
             <label style={label}>New Password</label>
-            <input style={input} type="password" placeholder="••••••••" />
+            <input
+              style={input}
+              type="password"
+              placeholder="At least 8 characters"
+              value={passwordForm.newPassword}
+              onChange={(event) => handlePasswordInput('newPassword', event.target.value)}
+            />
           </div>
           <div>
             <label style={label}>Confirm New Password</label>
-            <input style={input} type="password" placeholder="••••••••" />
+            <input
+              style={input}
+              type="password"
+              placeholder="Repeat the new password"
+              value={passwordForm.confirmNewPassword}
+              onChange={(event) => handlePasswordInput('confirmNewPassword', event.target.value)}
+            />
           </div>
         </div>
         <div style={{ marginTop: '20px' }}>
-          <button style={btnPrimary}>Update Password</button>
+          <button style={btnPrimary} type="submit" disabled={savingPassword}>
+            {savingPassword ? 'Updating…' : 'Update Password'}
+          </button>
         </div>
-      </div>
+      </form>
 
       <div style={{ ...card, borderColor: 'rgba(248,113,113,0.3)' }}>
         <h3 style={{ ...sectionTitle, color: 'var(--red)' }}>Danger Zone</h3>
@@ -222,7 +668,6 @@ function PlatformsTab() {
     const handleMessage = async (event: MessageEvent) => {
       if (event.data?.type === 'META_OAUTH_SUCCESS') {
         await fetchStatus();
-        openAccountPicker();
       }
     };
     window.addEventListener('message', handleMessage);
@@ -390,10 +835,12 @@ function PlatformsTab() {
                         Connected
                       </span>
                     )}
-                    {s.connected && id === 'meta' && (
-                      <button style={btnSecondary} onClick={openAccountPicker}>
-                        Switch Account
-                      </button>
+                    {id === 'meta' && (
+                      <Link href="/settings/integrations" style={{ textDecoration: 'none' }}>
+                        <span style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center' }}>
+                          Manage Integrations
+                        </span>
+                      </Link>
                     )}
                     <button
                       style={s.connected ? { ...btnSecondary, borderColor: 'rgba(248,113,113,0.3)', color: 'var(--red)' } : btnPrimary}
@@ -404,7 +851,11 @@ function PlatformsTab() {
                             fetchStatus();
                           } catch { /* ignore */ }
                         } else {
-                          connectFns[id]();
+                          if (id === 'meta') {
+                            window.location.href = '/settings/integrations';
+                          } else {
+                            connectFns[id]();
+                          }
                         }
                       }}
                     >
